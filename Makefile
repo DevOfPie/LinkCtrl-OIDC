@@ -1,0 +1,80 @@
+# The whole build, and every gate CI runs.
+#
+# There is no phase loop in this repository and no milestone file: the owner set
+# its process as *the same gates, no phase loop* — CI green, sabotage-verified
+# tests, a changelog, a checksummed release. `make check` is those gates as far
+# as a machine can run them; the sabotage half is a person's, and scripts/sabotage.sh
+# is what makes it repeatable.
+
+MODULE  := oidc.wasm
+VERSION := $(shell sed -n 's/^const Version = "\(.*\)"$$/\1/p' oidc/version.go)
+DIST    := dist
+BUNDLE  := $(DIST)/linkctrl-oidc-$(VERSION).tar.gz
+
+GOFLAGS_WASM := -trimpath -buildmode=c-shared
+
+.PHONY: all check build manifest bundle test vet fmt clean version
+
+all: check
+
+## check — everything CI runs, in the order a failure is cheapest to read in.
+check: fmt vet test build
+
+## fmt — gofmt is a gate rather than a suggestion; an unformatted file fails.
+fmt:
+	@out=$$(gofmt -l . ); \
+	if [ -n "$$out" ]; then echo "gofmt would change:"; echo "$$out"; exit 1; fi
+
+vet:
+	go vet ./...
+	GOOS=wasip1 GOARCH=wasm go vet ./...
+
+## test — the unit tests, and the SQL ones when a server is named.
+##
+## OIDC_TEST_PSQL_DSN puts every statement this add-on issues through a real
+## Postgres. Unset, those tests skip and say so.
+test:
+	go test ./... $(TESTFLAGS)
+
+## build — the module and the manifest that names its digest.
+##
+## A reactor, which is what -buildmode=c-shared produces: package initialization
+## runs when the host instantiates the module and it then stays alive to be
+## called into. -trimpath so that two builds of the same commit produce the same
+## bytes, which is what makes a published digest checkable by somebody else.
+build: $(MODULE) manifest
+
+$(MODULE): $(shell find . -name '*.go' -not -name '*_test.go') go.mod go.sum
+	GOOS=wasip1 GOARCH=wasm go build $(GOFLAGS_WASM) -o $(MODULE) .
+
+## manifest — addon.json, with @SHA256@ replaced by the module's real digest.
+##
+## The digest is the load-time half of build verification: the host checks it
+## before it writes anything, so a mismatch is a refusal rather than a module
+## that runs.
+manifest: $(MODULE)
+	@sha=$$(sha256sum $(MODULE) | cut -d' ' -f1); \
+	sed "s/@SHA256@/$$sha/" addon.json.in > addon.json; \
+	echo "addon.json names $(MODULE) sha256=$$sha"
+
+## bundle — the two files as one object, with a digest over the whole thing.
+##
+## An operator can upload the pair or point their instance at a URL. The URL
+## names a bundle: a tar, a gzipped tar or a zip holding addon.json and the
+## module it names, and nothing else — no directory entry, no symlink, no path.
+## The digest beside it is what makes a URL install safe, and it has to be
+## published somewhere other than the page the URL is on.
+bundle: build
+	@mkdir -p $(DIST)
+	tar --sort=name --owner=0 --group=0 --numeric-owner \
+	    --mtime='@0' --format=ustar \
+	    -czf $(BUNDLE) addon.json $(MODULE)
+	@cd $(DIST) && sha256sum $$(basename $(BUNDLE)) > SHA256SUMS
+	@cat $(DIST)/SHA256SUMS
+
+version:
+	@echo $(VERSION)
+
+clean:
+	rm -f $(MODULE) addon.json
+	rm -rf $(DIST)
