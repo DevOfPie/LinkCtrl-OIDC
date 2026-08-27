@@ -1,0 +1,121 @@
+# The gates, since there is no phase loop in this repository to sequence them.
+#
+# The owner set this repository's process as *the same gates, no phase loop*: CI
+# green, sabotage-verified tests, a changelog, a checksummed release. Four of
+# those are jobs here. The changelog is a file and the release is release.yml.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      # The SQL this add-on issues is checked against a real server rather than
+      # against the interpreter in the unit tests. Those are different claims:
+      # one is about behaviour and one is about whether the statement is valid
+      # Postgres, and only a server can answer the second.
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    env:
+      OIDC_TEST_PSQL_DSN: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      # The one dependency this repository has, and the assertion that it is the
+      # one.
+      #
+      # The SDK's own claim is that an add-on needs the Go standard library and
+      # nothing else, and this add-on exists to be the worked example of that. So
+      # the build graph is checked rather than described: every non-standard
+      # package this module compiles, on both the host toolchain and wasip1, must
+      # be the SDK or this repository's own. go.sum is two lines for the same
+      # reason — the SDK's module and its go.mod, and no third thing.
+      - name: The dependency graph is the SDK and nothing else
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+          for target in "" "GOOS=wasip1 GOARCH=wasm"; do
+            env $target go list -deps ./... \
+              | awk -F/ '$1 ~ /\./' \
+              | grep -v '^github.com/DevOfPie/LinkCtrl/sdk$' \
+              | grep -v '^github.com/DevOfPie/LinkCtrl-OIDC' \
+              > /tmp/extra || true
+            if [ -s /tmp/extra ]; then
+              echo "$target build pulls in something other than the SDK:"
+              cat /tmp/extra
+              exit 1
+            fi
+          done
+          test "$(wc -l < go.sum)" -eq 2 || { echo "go.sum is not two lines:"; cat go.sum; exit 1; }
+
+      - name: gofmt
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then echo "gofmt would change:"; echo "$out"; exit 1; fi
+
+      - name: go vet
+        run: |
+          go vet ./...
+          GOOS=wasip1 GOARCH=wasm go vet ./...
+
+      # -race for the native tests. The module itself is single-threaded inside
+      # the host — an instance answers one request — but the tests are not, and a
+      # data race in a fake is a test that lies in both directions.
+      - name: go test
+        run: go test -race -count=1 ./...
+
+      # Built twice, and the second time somewhere else. Building twice in one
+      # directory would not have caught the thing that actually broke this:
+      # Go stamps the VCS revision and a `vcs.modified` flag into a main package
+      # built inside a checkout, so the same source produced different bytes from
+      # a `git archive` tarball than from the tree it was archived out of. A
+      # digest somebody else cannot reproduce is a digest that proves nothing.
+      - name: The module builds to wasm, twice, in two places, to the same bytes
+        run: |
+          make build
+          here=$(sha256sum oidc.wasm | cut -d' ' -f1)
+          out=$(mktemp -d)
+          git archive HEAD | tar -x -C "$out"
+          make -C "$out" build >/dev/null
+          there=$(sha256sum "$out/oidc.wasm" | cut -d' ' -f1)
+          if [ "$here" != "$there" ]; then
+            echo "the build is not reproducible: $here in the checkout, $there outside it"
+            exit 1
+          fi
+          echo "reproducible: $here"
+
+      - name: The manifest names the module that was built
+        run: |
+          declared=$(python3 -c 'import json;print(json.load(open("addon.json"))["sha256"])')
+          actual=$(sha256sum oidc.wasm | cut -d' ' -f1)
+          test "$declared" = "$actual"
+          grep -q '@SHA256@' addon.json && { echo "unsubstituted placeholder"; exit 1; }
+          echo "addon.json names $actual"
+
+      # The gate this repository is named for. Every claim the suite makes is
+      # broken in turn and the named test has to go red; a claim whose test stays
+      # green is a claim nobody has evidence about.
+      - name: Sabotage every claim
+        run: ./scripts/sabotage.sh

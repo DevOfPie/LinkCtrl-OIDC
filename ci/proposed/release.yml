@@ -1,0 +1,85 @@
+# The release: a checksummed bundle and the provenance to go with it.
+#
+# The manifest carries the module's digest, which is what the host verifies
+# before it writes anything at install. The bundle carries its own digest, which
+# is what an operator types beside a URL — and it is published here, in the
+# release notes and in SHA256SUMS, rather than on the page the URL is on, because
+# a digest read off the same page as the address proves nothing about either.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The tag to build
+        required: true
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: The tag and the version in the code agree
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          version=$(make version)
+          if [ "$tag" != "v$version" ]; then
+            echo "the tag is $tag and oidc/version.go says $version"; exit 1
+          fi
+          grep -q "^## \[$version\]" CHANGELOG.md || {
+            echo "CHANGELOG.md has no entry for $version"; exit 1; }
+
+      - name: Test and build
+        run: |
+          go test -count=1 ./...
+          make bundle
+
+      # Published provenance: the other half of the owner's "both" answer on
+      # build verification. The load-time half is the digest in the manifest;
+      # this is the half that says which workflow, on which commit, produced the
+      # bytes that digest is of.
+      - uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            oidc.wasm
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(make version)
+          {
+            echo "Install through the Add-on manager, or with \`POST /api/v1/addons\`."
+            echo
+            echo "The bundle's own digest, which is what an operator types beside the URL:"
+            echo
+            echo '```'
+            cat dist/SHA256SUMS
+            echo '```'
+            echo
+            echo "The manifest inside it names the module's digest, which is what the"
+            echo "host verifies before it writes anything:"
+            echo
+            echo '```'
+            sha256sum oidc.wasm
+            echo '```'
+          } > notes.md
+          gh release create "v$version" \
+            --title "v$version" --notes-file notes.md \
+            dist/linkctrl-oidc-"$version".tar.gz dist/SHA256SUMS oidc.wasm addon.json
