@@ -1,0 +1,6 @@
+# The build outputs. Nothing built is committed: the module is what a release
+# publishes with its digest, and a binary in the tree is a binary somebody could
+# install without the workflow that produced it having ever run.
+/oidc.wasm
+/addon.json
+/dist/

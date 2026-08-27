@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "name": "oidc",
+  "version": "0.1.0",
+  "abi_version": 1,
+  "module": "oidc.wasm",
+  "sha256": "@SHA256@",
+  "failure_class": "required",
+  "permissions": [
+    "routes.own_prefix",
+    "session.context",
+    "session.mint",
+    "storage.own_schema",
+    "config.read",
+    "network.fetch"
+  ],
+  "cookie_prefixes": [
+    "oidc_"
+  ],
+  "settings": [
+    {
+      "name": "issuer",
+      "type": "text"
+    },
+    {
+      "name": "client_id",
+      "type": "text"
+    },
+    {
+      "name": "client_secret",
+      "type": "secret"
+    },
+    {
+      "name": "redirect_uri",
+      "type": "text"
+    },
+    {
+      "name": "provider_origins",
+      "type": "text",
+      "origin": true
+    },
+    {
+      "name": "scopes",
+      "type": "text",
+      "default": "openid profile email"
+    },
+    {
+      "name": "after_sign_in",
+      "type": "text",
+      "default": "/dashboard"
+    },
+    {
+      "name": "after_link",
+      "type": "text",
+      "default": "/dashboard"
+    },
+    {
+      "name": "require_verified_email",
+      "type": "toggle",
+      "default": "false"
+    },
+    {
+      "name": "clock_skew_seconds",
+      "type": "text",
+      "default": "60"
+    },
+    {
+      "name": "discovery_ttl_seconds",
+      "type": "text",
+      "default": "900"
+    }
+  ]
+}
