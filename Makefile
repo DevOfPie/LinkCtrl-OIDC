@@ -11,7 +11,15 @@ VERSION := $(shell sed -n 's/^const Version = "\(.*\)"$$/\1/p' oidc/version.go)
 DIST    := dist
 BUNDLE  := $(DIST)/linkctrl-oidc-$(VERSION).tar.gz
 
-GOFLAGS_WASM := -trimpath -buildmode=c-shared
+# -buildvcs=false is not tidiness. Go stamps the VCS revision and a `vcs.modified`
+# flag into a main package built inside a checkout, so the same source produces
+# different bytes depending on which commit is checked out and whether the tree
+# is clean — and produces different bytes again from a `git archive` tarball,
+# which has no VCS at all. That is the opposite of what a published digest is
+# for. Provenance is the release workflow's attestation, which says which
+# workflow on which commit produced the artifact and does not have to be inside
+# the bytes to do it.
+GOFLAGS_WASM := -trimpath -buildvcs=false -buildmode=c-shared
 
 .PHONY: all check build manifest bundle test vet fmt clean version
 
