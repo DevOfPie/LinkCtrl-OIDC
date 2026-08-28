@@ -22,23 +22,31 @@ applies workflows and cuts tags.
 
 | File | What it is | Applied |
 | --- | --- | --- |
-| `ci.yml` | Build to wasm, run the tests, run `scripts/sabotage.sh`, and build the artifact **twice in two places** — once in the checkout and once from a `git archive` — asserting the digests match | **No** |
-| `release.yml` | On a tag: build the bundle, attach it with its checksum, and run `attest-build-provenance` | **No** |
+| `ci.yml` | Build to wasm, run the tests, run `scripts/sabotage.sh`, and build the artifact **twice in two places** — once in the checkout and once from a `git archive` — asserting the digests match | **Yes**, 2026-08-28 (`e3cc1e6`) |
+| `release.yml` | On a tag: build the bundle, attach it with its checksum, and run `attest-build-provenance` | **Yes**, 2026-08-28 (`e3cc1e6`) — not yet triggered, because no tag exists |
 
-Neither has ever run. Until `ci.yml` is applied this repository's *CI green*
-gate is unmet, and the tests are green only where somebody ran them by hand.
+**Both are applied.** `ci.yml` has run and is green on `e3cc1e6` — every step,
+including the reproducible double-build and all thirty-two sabotages, each
+confirmed red and restored. `release.yml` has not been triggered, because that
+needs a tag and the tag is the owner's.
+
+The owner applied them by **moving** these files rather than copying them, which
+is why this directory now holds only this README. That is the right shape: a
+proposal that has landed should not go on sitting here looking like one.
 
 ## Applying them
 
 ```sh
 mkdir -p .github/workflows
-cp ci/proposed/ci.yml ci/proposed/release.yml .github/workflows/
-git add .github/workflows && git commit -m "Apply the proposed workflows"
+git mv ci/proposed/ci.yml ci/proposed/release.yml .github/workflows/
+git commit -m "Apply proposed CI"
 git push origin main
 ```
 
-Then mark the rows above **Yes** in the same commit or the one after, so this
-file does not describe a proposal that has already landed.
+Then mark the rows above **Yes**, so this file does not describe a proposal that
+has already landed. That correction is what this paragraph is an example of: it
+was written after the fact rather than in the applying commit, which is the
+failure mode worth naming rather than the one to hide.
 
 ## The tag, which is the other half
 
