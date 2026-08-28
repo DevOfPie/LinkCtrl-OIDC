@@ -74,8 +74,14 @@ manifest: $(MODULE)
 ## published somewhere other than the page the URL is on.
 bundle: build
 	@mkdir -p $(DIST)
+	# --mode is not optional and its absence was invisible until a release existed
+	# to compare against: without it tar records each file's mode as it is on
+	# disk, so the builder's umask reaches the archive and the bundle's digest
+	# differs between a machine at 022 and one at 002 while every byte inside is
+	# identical. The digest an operator types beside a URL has to be the same
+	# number wherever it was produced, or "rebuild it and compare" proves nothing.
 	tar --sort=name --owner=0 --group=0 --numeric-owner \
-	    --mtime='@0' --format=ustar \
+	    --mtime='@0' --mode='u=rw,go=r' --format=ustar \
 	    -czf $(BUNDLE) addon.json $(MODULE)
 	@cd $(DIST) && sha256sum $$(basename $(BUNDLE)) > SHA256SUMS
 	@cat $(DIST)/SHA256SUMS
